@@ -1,4 +1,4 @@
-# ODC EOS Scorecard — proof of concept TEST
+# ODC EOS Scorecard — proof of concept
 
 Sample-data prototype of the EOS scorecard used in L10 meetings. Shown to
 leadership ahead of a real build. No live data is connected.
