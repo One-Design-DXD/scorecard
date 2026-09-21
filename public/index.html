@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>One Design Company — EOS Scorecard (Proof of Concept)</title>
+<style>
+  :root {
+    color-scheme: light;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    --bg: #f1f5f9;
+    --surface: #ffffff;
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); height: 100%; }
+  body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 1px;
+  }
+  .odc-fallback {
+    max-width: 34rem;
+    margin: 12vh auto;
+    padding: 0 1.5rem;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  .odc-main table { border-collapse: collapse; }
+  .odc-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  @media (max-width: 820px) {
+    .odc-shell { flex-direction: column !important; }
+    .odc-sidebar {
+      width: 100% !important;
+      min-height: 0 !important;
+      padding: 12px 0 8px !important;
+    }
+    .odc-nav { display: flex !important; gap: 4px; overflow-x: auto; padding: 8px 12px !important; }
+    .odc-nav button { white-space: nowrap; margin-bottom: 0 !important; }
+    .odc-main { max-height: none !important; padding: 16px 12px !important; }
+    .odc-main table { min-width: 620px; }
+    .odc-tiers { grid-template-columns: 1fr !important; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"><div class="odc-fallback">Loading the scorecard… If this message stays on screen, the page couldn't reach its script CDN — check the network connection and reload.</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.29.9/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, Fragment, useEffect } = React;
+
+const CATS = ["Financial","Utilization","Design & Delivery","Pipeline & Sales","Client Health","Team Health"];
+const ROLES = { admin:"Admin", editor:"Editor", viewer:"Viewer" };
+const SC = { on:"#22c55e", off:"#ef4444", at:"#f59e0b" };
+const SRC_C = { Harvest:"#f97316", CultureAmp:"#8b5cf6", "Google Sheets":"#22c55e", Copper:"#3b82f6", "Harvest + Sheets":"#e67e22", Manual:"#94a3b8", "Client survey":"#0ea5e9" };
+const YEARS = [2024,2025,2026];
+const QS = ["Q1","Q2","Q3","Q4"];
+const CAD = { W:"Weekly", M:"Monthly", Q:"Quarterly" };
+
+const ATIERS = {
+  critical:{ label:"Off track", color:"#ef4444", icon:"\u{1F534}", action:"Drop to IDS", channel:"Slack + Email + In-app" },
+  warning:{ label:"At risk", color:"#f59e0b", icon:"\u{1F7E1}", action:"Assign a To-Do", channel:"Slack + In-app" },
+  watch:{ label:"Early warning", color:"#3b82f6", icon:"\u{1F535}", action:"Monitor", channel:"In-app only" },
+};
+
+const USERS = [
+  { id:"brad", name:"Brad Nowak", role:"admin", avatar:"BN" },
+  { id:"pat", name:"Pat Griffin", role:"editor", avatar:"PG" },
+  { id:"david", name:"David Sieren", role:"editor", avatar:"DS" },
+  { id:"will", name:"Will Moran", role:"editor", avatar:"WM" },
+  { id:"becky", name:"Becky Luther", role:"editor", avatar:"BL" },
+];
+
+// Seeded pseudo-random so every viewer sees identical demo numbers.
+let _seed = 20260921;
+function rnd() {
+  _seed = (_seed * 1664525 + 1013904223) % 4294967296;
+  return _seed / 4294967296;
+}
+
+function genD(base, variance, n) {
+  n = n || 13;
+  const arr = [];
+  for (let i = 0; i < n; i++) arr.push(+(base + (rnd() - 0.45) * variance).toFixed(1));
+  return arr;
+}
+
+function genH(base, v) {
+  return {
+    2024:{ Q1:genD(base*.88,v), Q2:genD(base*.92,v), Q3:genD(base*.95,v), Q4:genD(base*.98,v) },
+    2025:{ Q1:genD(base*.96,v), Q2:genD(base*.98,v), Q3:genD(base,v), Q4:genD(base*1.02,v) },
+    2026:{ Q1:genD(base,v), Q2:genD(base*1.01,v), Q3:[], Q4:[] },
+  };
+}
+
+const EXPLAINERS = {
+  rev_actual: { what: "Total revenue received in the current period.", why: "The most fundamental measure of business health. Tracks whether we're converting work into income at the pace needed to sustain operations and hit annual targets." },
+  rev_projected: { what: "Forecasted revenue based on signed contracts and likely-to-close deals.", why: "Gives us a forward-looking view so we can anticipate shortfalls before they hit. If projected consistently exceeds actual, our forecasting needs calibration." },
+  margin: { what: "Revenue minus direct costs (labor, contractors, tools) as a percentage of revenue.", why: "Tells us if we're delivering work profitably. A studio can be busy and still lose money if margin isn't watched. The 10% target is our floor for sustainability." },
+  cash: { what: "Total cash available across all accounts.", why: "Cash is oxygen. Even profitable studios fail if cash runs dry between client payments. This ensures we always have runway to cover payroll and operations." },
+  ar60: { what: "Percentage of total receivables that are more than 60 days past due.", why: "Aging receivables signal collection problems or client relationship issues. Money owed beyond 60 days becomes increasingly hard to collect and strains cash flow." },
+  util: { what: "Percentage of total available hours spent on billable client work.", why: "The core efficiency metric for a service business. Below 70% means too much time on non-billable work; consistently above 85% risks burnout and leaves no room for growth initiatives." },
+  alloc: { what: "How closely actual time spent matches the planned allocation for each person.", why: "Measures whether our resource planning is accurate. Low accuracy means either poor planning or scope changes mid-week, both of which hurt delivery and profitability." },
+  hrs_total: { what: "Total hours logged by the entire team in the period.", why: "A baseline capacity indicator. Sudden drops may signal PTO clustering, morale issues, or time-tracking gaps. Paired with utilization, it shows overall team bandwidth." },
+  hrs_prod: { what: "Total hours minus FTO, office closures, and company meetings.", why: "Shows the real available capacity for work. The gap between total and productive hours reveals how much time is consumed by non-work factors each week." },
+  ontime: { what: "Percentage of deliverables or milestones delivered by the agreed deadline.", why: "The single most visible quality signal to clients. Late delivery erodes trust, triggers scope discussions, and often means we underestimated the work — which hurts margin too." },
+  revisions: { what: "Average number of revision rounds before a deliverable is approved.", why: "High revision counts usually point to misalignment during discovery or briefing, not bad design. Tracking this helps us improve how we set expectations and present work." },
+  cycle_time: { what: "Average number of days from signed SOW to final delivery.", why: "Shorter cycles mean faster invoicing, better cash flow, and higher client satisfaction. Tracking by project type reveals where our process is efficient and where it's bloated." },
+  budget_var: { what: "Actual hours spent as a percentage of estimated hours (100% = on budget).", why: "Directly ties creative work to profitability. Consistently going over budget on a project type means we're either underpricing or underestimating — both fixable once visible." },
+  ehr: { what: "Total revenue divided by total hours worked across the team.", why: "Cuts through flat fees and retainers to show what we actually earn per hour of effort. This is the truest measure of pricing power and operational efficiency." },
+  scope_creep: { what: "Percentage of active projects where scope expanded beyond the original SOW.", why: "Some scope evolution is natural, but unmanaged creep destroys margin silently. Tracking it makes the invisible visible and gives us data to improve scoping and change-order discipline." },
+  pipeline: { what: "Total dollar value of all active opportunities in Copper.", why: "Shows the size of our opportunity pool. A shrinking pipeline today means a revenue gap 2-3 months from now. This is the earliest revenue warning signal we have." },
+  pipe_wt: { what: "Pipeline value adjusted by the probability of each deal closing based on its stage.", why: "More realistic than raw pipeline because it accounts for deal maturity. A $800K pipeline weighted to $400K tells a very different story than $800K weighted to $200K." },
+  winrate: { what: "Percentage of proposals or pitches that convert to signed work.", why: "Measures how effectively we're qualifying leads and presenting our value. A low win rate may mean we're chasing the wrong work or not differentiating in proposals." },
+  leads: { what: "Number of new qualified opportunities entering the pipeline each week.", why: "The top of the funnel. Without a steady flow of new leads, the pipeline drains and future revenue dries up. This metric ensures we're consistently generating new business." },
+  nps: { what: "Net Promoter Score from client surveys — likelihood to recommend One Design.", why: "The gold standard for client loyalty. Promoters drive referrals and repeat business. Detractors signal relationship problems that need immediate attention." },
+  csat: { what: "Average satisfaction rating from clients on active projects (1-5 scale).", why: "More granular than NPS — captures satisfaction during the engagement, not just after. Lets us course-correct on active projects before they become retention problems." },
+  retention: { what: "Percentage of clients who return for additional work within 12 months.", why: "Repeat clients are more profitable (no acquisition cost), faster to onboard, and validate that our work delivers lasting value. This is the ultimate proof of client success." },
+  referral: { what: "Percentage of new leads that come from existing client referrals.", why: "Referrals close faster, cost nothing to acquire, and come pre-qualified. A high referral rate means our work is so good that clients sell for us." },
+  engage: { what: "CultureAmp engagement score measuring team connection, motivation, and alignment.", why: "Engaged teams produce better creative work, stay longer, and collaborate more effectively. For a design studio, engagement directly correlates with output quality." },
+  enps: { what: "Employee Net Promoter Score — likelihood to recommend One Design as a workplace.", why: "The team equivalent of client NPS. A leading indicator of retention and recruiting strength. If our own people wouldn't recommend working here, we have a culture problem to solve." },
+};
+
+const METRICS = [
+  { id:"rev_actual",name:"Revenue — Actual",cat:"Financial",owner:"Pat Griffin",goal:185,unit:"$K",source:"Google Sheets",history:genH(185,20),cadence:"W" },
+  { id:"rev_projected",name:"Revenue — Projected",cat:"Financial",owner:"Pat Griffin",goal:200,unit:"$K",source:"Google Sheets",history:genH(200,25),cadence:"W" },
+  { id:"margin",name:"Gross Margin",cat:"Financial",owner:"Pat Griffin",goal:10,unit:"%",source:"Google Sheets",history:genH(10,3),cadence:"W" },
+  { id:"cash",name:"Cash Balance",cat:"Financial",owner:"Pat Griffin",goal:400,unit:"$K",source:"Google Sheets",history:genH(400,50),cadence:"W" },
+  { id:"ar60",name:"A/R > 60 Days",cat:"Financial",owner:"Pat Griffin",goal:5,unit:"%",source:"Google Sheets",inverted:true,history:genH(4.5,3),cadence:"W" },
+  { id:"util",name:"Billable Utilization",cat:"Utilization",owner:"Brad Nowak",goal:70,unit:"%",source:"Harvest",history:genH(70,8),cadence:"W" },
+  { id:"alloc",name:"Allocation Accuracy",cat:"Utilization",owner:"Brad Nowak",goal:90,unit:"%",source:"Harvest",history:genH(88,8),cadence:"W" },
+  { id:"hrs_total",name:"Total Hours Logged",cat:"Utilization",owner:"Brad Nowak",goal:1400,unit:"hrs",source:"Harvest",history:genH(1400,80),cadence:"W" },
+  { id:"hrs_prod",name:"Productive Hours",cat:"Utilization",owner:"Brad Nowak",goal:1200,unit:"hrs",source:"Harvest",history:genH(1200,70),cadence:"W" },
+  { id:"ontime",name:"On-Time Delivery Rate",cat:"Design & Delivery",owner:"Brad Nowak",goal:90,unit:"%",source:"Harvest + Sheets",history:genH(87,10),cadence:"W" },
+  { id:"revisions",name:"Revision Rounds per Deliverable",cat:"Design & Delivery",owner:"David Sieren",goal:2,unit:"avg",source:"Manual",history:genH(2.4,0.8),inverted:true,cadence:"W" },
+  { id:"cycle_time",name:"Project Cycle Time",cat:"Design & Delivery",owner:"Brad Nowak",goal:21,unit:"days",source:"Harvest + Sheets",history:genH(24,8),inverted:true,cadence:"M" },
+  { id:"budget_var",name:"Budget vs. Actual Hours",cat:"Design & Delivery",owner:"Brad Nowak",goal:100,unit:"%",source:"Harvest",history:genH(108,15),inverted:true,cadence:"W" },
+  { id:"ehr",name:"Effective Hourly Rate",cat:"Design & Delivery",owner:"Pat Griffin",goal:165,unit:"$/hr",source:"Harvest + Sheets",history:genH(158,25),cadence:"M" },
+  { id:"scope_creep",name:"Scope Creep Rate",cat:"Design & Delivery",owner:"David Sieren",goal:15,unit:"%",source:"Manual",history:genH(18,8),inverted:true,cadence:"M" },
+  { id:"pipeline",name:"Total Pipeline",cat:"Pipeline & Sales",owner:"David Sieren",goal:800,unit:"$K",source:"Copper",history:genH(800,80),cadence:"W" },
+  { id:"pipe_wt",name:"Weighted Pipeline",cat:"Pipeline & Sales",owner:"David Sieren",goal:400,unit:"$K",source:"Copper",history:genH(400,60),cadence:"W" },
+  { id:"winrate",name:"Win Rate",cat:"Pipeline & Sales",owner:"Pat Griffin",goal:35,unit:"%",source:"Copper",history:genH(34,8),cadence:"M" },
+  { id:"leads",name:"New Leads",cat:"Pipeline & Sales",owner:"David Sieren",goal:5,unit:"#/wk",source:"Copper",history:genH(5,3),cadence:"W" },
+  { id:"nps",name:"Client NPS",cat:"Client Health",owner:"David Sieren",goal:50,unit:"score",source:"Client survey",history:genH(50,8),cadence:"Q",flag:"Source changed from CultureAmp — needs a client survey tool" },
+  { id:"csat",name:"Client Satisfaction",cat:"Client Health",owner:"David Sieren",goal:4.2,unit:"/5",source:"Client survey",history:genH(4.2,0.4),cadence:"Q",flag:"Source changed from CultureAmp — needs a client survey tool" },
+  { id:"retention",name:"Client Retention Rate",cat:"Client Health",owner:"Pat Griffin",goal:80,unit:"%",source:"Copper",history:genH(78,10),cadence:"Q",flag:"Derived — Copper has no native retention field" },
+  { id:"referral",name:"Referral Rate",cat:"Client Health",owner:"Pat Griffin",goal:25,unit:"%",source:"Copper",history:genH(22,8),cadence:"Q" },
+  { id:"engage",name:"Engagement Score",cat:"Team Health",owner:"Will Moran",goal:75,unit:"score",source:"CultureAmp",history:genH(72,6),cadence:"Q" },
+  { id:"enps",name:"Employee NPS",cat:"Team Health",owner:"Becky Luther",goal:40,unit:"score",source:"CultureAmp",history:genH(38,6),cadence:"Q" },
+];
+
+function getWkLabels() {
+  var labels = [];
+  var now = new Date();
+  for (var i = 12; i >= 0; i--) {
+    var d = new Date(now);
+    d.setDate(d.getDate() - i * 7);
+    labels.push((d.getMonth()+1) + "/" + d.getDate());
+  }
+  return labels;
+}
+
+function getSt(v, goal, inv) {
+  if (v == null) return "at";
+  if (inv) return v <= goal ? "on" : v <= goal * 1.2 ? "at" : "off";
+  return v >= goal ? "on" : v >= goal * 0.9 ? "at" : "off";
+}
+
+function computeAlerts(mets, yr, qtr) {
+  var alerts = [];
+  mets.forEach(function(m) {
+    var d = (m.history && m.history[yr] && m.history[yr][qtr]) || [];
+    if (d.length < 3) return;
+    var last = d[d.length-1];
+    var prev = d[d.length-2];
+    var prev2 = d[d.length-3];
+    var s = getSt(last, m.goal, m.inverted);
+    var declining = m.inverted ? (last > prev && prev > prev2) : (last < prev && prev < prev2);
+    var slipping = m.inverted ? (last > prev) : (last < prev);
+    var pctOff = m.inverted ? ((last - m.goal) / m.goal * 100) : ((m.goal - last) / m.goal * 100);
+    if (s === "off") {
+      alerts.push({ m:m, tier:"critical", msg:"Missed goal: " + last + " vs " + m.goal + " (" + pctOff.toFixed(0) + "% off)", action:"Drop to IDS in next L10", read:false });
+    } else if (s === "at" && declining) {
+      alerts.push({ m:m, tier:"warning", msg:"At risk and declining for 3 consecutive periods", action:"Assign a To-Do to investigate", read:false });
+    } else if (s === "at" && slipping) {
+      alerts.push({ m:m, tier:"warning", msg:"Approaching goal threshold — currently " + last + " vs " + m.goal, action:"Review in L10", read:false });
+    } else if (s === "on" && declining) {
+      alerts.push({ m:m, tier:"watch", msg:"On track but declining for 3 consecutive periods", action:"Monitor — no action yet", read:false });
+    }
+  });
+  alerts.sort(function(a, b) {
+    var o = { critical:0, warning:1, watch:2 };
+    return o[a.tier] - o[b.tier];
+  });
+  return alerts;
+}
+
+function Dot({ s, sz }) {
+  var size = sz || 10;
+  return <span style={{ display:"inline-block", width:size, height:size, borderRadius:"50%", background:SC[s], flexShrink:0 }} />;
+}
+
+function Badge({ t, c }) {
+  return <span style={{ fontSize:10, fontWeight:600, background:c+"15", color:c, padding:"2px 8px", borderRadius:10, whiteSpace:"nowrap" }}>{t}</span>;
+}
+
+function Btn({ children, active, onClick, style }) {
+  var sx = style || {};
+  return (
+    <button onClick={onClick} style={{ fontSize:11, padding:"5px 12px", borderRadius:6, border:"1px solid #e2e8f0", background:active ? "#0f172a" : "#fff", color:active ? "#fff" : "#334155", cursor:"pointer", fontWeight:600, transition:"all .15s", ...sx }}>
+      {children}
+    </button>
+  );
+}
+
+function IconBtn({ children, onClick, title, style }) {
+  var sx = style || {};
+  return (
+    <button onClick={onClick} title={title} style={{ fontSize:13, padding:"5px 8px", borderRadius:6, border:"1px solid #e2e8f0", background:"#fff", cursor:"pointer", display:"flex", alignItems:"center", gap:4, ...sx }}>
+      {children}
+    </button>
+  );
+}
+
+function Spark({ data, goal, inv }) {
+  var w = 130, h = 32;
+  if (!data || data.length < 2) return <span style={{ fontSize:10, color:"#94a3b8" }}>—</span>;
+  var all = data.concat([goal]);
+  var mn = Math.min.apply(null, all) * 0.94;
+  var mx = Math.max.apply(null, all) * 1.06;
+  var rng = mx - mn || 1;
+  var yp = function(v) { return h - ((v - mn) / rng) * h; };
+  var pts = data.map(function(v, i) { return ((i / (data.length - 1)) * w) + "," + yp(v); }).join(" ");
+  var goalY = yp(goal);
+  return (
+    <svg width={w} height={h} style={{ display:"block" }} role="img" aria-label="13-week trend">
+      <line x1={0} y1={goalY} x2={w} y2={goalY} stroke="#94a3b8" strokeWidth={1} strokeDasharray="3,3" />
+      <polyline points={pts} fill="none" stroke="#3b82f6" strokeWidth={1.5} />
+      {data.map(function(v, i) {
+        return <circle key={i} cx={(i / (data.length - 1)) * w} cy={yp(v)} r={i === data.length - 1 ? 3 : 1.5} fill={SC[getSt(v, goal, inv)]} />;
+      })}
+    </svg>
+  );
+}
+
+function HeatRow({ data, goal, inv, labels }) {
+  return (
+    <div style={{ display:"flex", gap:3, flexWrap:"wrap" }}>
+      {data.map(function(v, i) {
+        var s = getSt(v, goal, inv);
+        return (
+          <div key={i} style={{ textAlign:"center" }}>
+            <div style={{ width:24, height:24, borderRadius:4, background:SC[s]+"20", border:"1.5px solid "+SC[s], display:"flex", alignItems:"center", justifyContent:"center", fontSize:7, fontWeight:700, color:SC[s] }}>
+              {typeof v === "number" ? (v >= 100 ? Math.round(v) : v) : "—"}
+            </div>
+            {labels && <div style={{ fontSize:6, color:"#94a3b8", marginTop:1 }}>{labels[i]}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SummaryCards({ metrics, yr, qtr }) {
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))", gap:10, marginBottom:16 }}>
+      {CATS.map(function(cat) {
+        var ms = metrics.filter(function(m) { return m.cat === cat; });
+        if (!ms.length) return null;
+        var onC = ms.filter(function(m) {
+          var d = (m.history && m.history[yr] && m.history[yr][qtr]) || [];
+          var last = d.length ? d[d.length - 1] : null;
+          return last !== null && getSt(last, m.goal, m.inverted) === "on";
+        }).length;
+        var pct = ms.length ? Math.round(onC / ms.length * 100) : 0;
+        return (
+          <div key={cat} style={{ background:"#fff", border:"1px solid #e2e8f0", borderRadius:10, padding:"10px 12px" }}>
+            <div style={{ fontSize:9, color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, lineHeight:1.3 }}>{cat}</div>
+            <div style={{ fontSize:24, fontWeight:800, color:pct >= 75 ? "#22c55e" : pct >= 50 ? "#f59e0b" : "#ef4444", marginTop:2 }}>{pct}%</div>
+            <div style={{ fontSize:10, color:"#94a3b8" }}>{onC}/{ms.length} on track</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Recs({ metrics, yr, qtr }) {
+  var issues = [];
+  metrics.forEach(function(m) {
+    var d = (m.history && m.history[yr] && m.history[yr][qtr]) || [];
+    if (d.length < 2) return;
+    var last = d[d.length - 1];
+    var s = getSt(last, m.goal, m.inverted);
+    var t3 = d.slice(-3);
+    var dec = t3.length >= 3 && (!m.inverted ? t3[2] < t3[0] : t3[2] > t3[0]);
+    if (s === "off") issues.push({ m:m, sev:"high", reason:"Off track" });
+    else if (s === "at" && dec) issues.push({ m:m, sev:"med", reason:"At risk & declining" });
+  });
+  issues.sort(function(a, b) { return (a.sev === "high" ? 0 : 1) - (b.sev === "high" ? 0 : 1); });
+  if (!issues.length) return <div style={{ padding:14, fontSize:12, color:"#22c55e", fontWeight:600 }}>All metrics on track — no immediate actions.</div>;
+  return (
+    <div style={{ padding:"12px 16px" }}>
+      <div style={{ fontSize:12, fontWeight:700, marginBottom:8 }}>Recommended actions</div>
+      {issues.slice(0, 6).map(function(iss, i) {
+        var d = (iss.m.history && iss.m.history[yr] && iss.m.history[yr][qtr]) || [];
+        var last = d[d.length - 1];
+        return (
+          <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:8, fontSize:12, lineHeight:1.5 }}>
+            <Badge t={iss.sev === "high" ? "IDS" : "WATCH"} c={iss.sev === "high" ? "#ef4444" : "#f59e0b"} />
+            <span><strong>{iss.m.name}</strong> — {iss.reason}. Owner: {iss.m.owner}. Current: {last} vs goal {iss.m.goal}.{iss.sev === "high" ? " → Drop to IDS or assign a To-Do." : ""}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AlertPanel({ alerts, onClose, onMarkRead }) {
+  const [filter, setFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  var filtered = alerts.filter(function(a) {
+    return (filter === "all" || a.tier === filter) && (ownerFilter === "all" || a.m.owner === ownerFilter);
+  });
+  var owners = [];
+  alerts.forEach(function(a) { if (owners.indexOf(a.m.owner) === -1) owners.push(a.m.owner); });
+  var unread = alerts.filter(function(a) { return !a.read; }).length;
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", display:"flex", justifyContent:"flex-end", zIndex:100 }}>
+      <div style={{ width:"min(520px, 95%)", background:"#fff", height:"100%", overflow:"auto", boxShadow:"-4px 0 20px rgba(0,0,0,.1)" }}>
+        <div style={{ padding:"20px 20px 12px", borderBottom:"1px solid #e2e8f0", position:"sticky", top:0, background:"#fff", zIndex:2 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <div>
+              <div style={{ fontSize:18, fontWeight:800 }}>Alerts</div>
+              <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>{unread} unread · {alerts.length} total</div>
+            </div>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              {unread > 0 && <Btn onClick={function() { for (var i = 0; i < alerts.length; i++) onMarkRead(i); }} style={{ fontSize:10, padding:"3px 8px" }}>Mark all read</Btn>}
+              <button onClick={onClose} aria-label="Close alerts" style={{ fontSize:18, background:"none", border:"none", cursor:"pointer", color:"#94a3b8" }}>✕</button>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:8 }}>
+            {[{k:"all",l:"All"},{k:"critical",l:"Off track"},{k:"warning",l:"At risk"},{k:"watch",l:"Early warning"}].map(function(f) {
+              var cnt = alerts.filter(function(a) { return a.tier === f.k; }).length;
+              return <Btn key={f.k} active={filter === f.k} onClick={function() { setFilter(f.k); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:12 }}>{f.l}{f.k !== "all" ? " (" + cnt + ")" : ""}</Btn>;
+            })}
+          </div>
+          <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+            <Btn active={ownerFilter === "all"} onClick={function() { setOwnerFilter("all"); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:12 }}>All owners</Btn>
+            {owners.map(function(o) {
+              return <Btn key={o} active={ownerFilter === o} onClick={function() { setOwnerFilter(o); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:12 }}>{o.split(" ")[0]}</Btn>;
+            })}
+          </div>
+        </div>
+        <div style={{ padding:"12px 20px" }}>
+          {filtered.length === 0 && <div style={{ fontSize:13, color:"#94a3b8", textAlign:"center", padding:40 }}>No alerts match your filters.</div>}
+          {filtered.map(function(a, i) {
+            var tier = ATIERS[a.tier];
+            var origIdx = alerts.indexOf(a);
+            return (
+              <div key={i} onClick={function() { onMarkRead(origIdx); }} style={{ padding:"14px 16px", marginBottom:8, background:a.read ? "#fff" : "#f8fafc", border:"1px solid " + (a.read ? "#e2e8f0" : tier.color + "40"), borderLeft:"3px solid " + tier.color, borderRadius:10, cursor:"pointer" }}>
+                <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:14, flexShrink:0, marginTop:1 }}>{tier.icon}</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap", marginBottom:4 }}>
+                      <Badge t={tier.label} c={tier.color} />
+                      <Badge t={a.m.cat} c="#64748b" />
+                      <Badge t={CAD[a.m.cadence]} c={a.m.cadence === "W" ? "#3b82f6" : a.m.cadence === "M" ? "#8b5cf6" : "#64748b"} />
+                    </div>
+                    <div style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{a.m.name}</div>
+                    <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>{a.msg}</div>
+                    <div style={{ display:"flex", gap:12, marginTop:8, flexWrap:"wrap" }}>
+                      <div style={{ fontSize:11, color:"#94a3b8" }}>Owner: <strong style={{ color:"#334155" }}>{a.m.owner}</strong></div>
+                      <div style={{ fontSize:11, color:"#94a3b8" }}>Source: <strong style={{ color:"#334155" }}>{a.m.source}</strong></div>
+                    </div>
+                    <div style={{ marginTop:8, padding:"6px 10px", background:tier.color+"08", borderRadius:6, border:"1px solid "+tier.color+"20", fontSize:11, color:tier.color }}>
+                      <strong>Suggested action:</strong> {a.action}
+                    </div>
+                    <div style={{ marginTop:6, fontSize:10, color:"#94a3b8" }}>
+                      Notified via: {tier.channel}
+                    </div>
+                  </div>
+                  {!a.read && <span style={{ width:8, height:8, borderRadius:"50%", background:tier.color, flexShrink:0, marginTop:6 }} />}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GoalEditor({ metrics, onSave, onClose, yr }) {
+  const [edits, setEdits] = useState(function() { return metrics.map(function(m) { return Object.assign({}, m); }); });
+  function up(id, f, v) {
+    setEdits(function(p) { return p.map(function(e) { return e.id === id ? Object.assign({}, e, { [f]: v }) : e; }); });
+  }
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, padding:12 }}>
+      <div style={{ background:"#fff", borderRadius:14, width:"100%", maxWidth:760, maxHeight:"85vh", overflow:"auto", padding:24 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <div>
+            <div style={{ fontSize:18, fontWeight:800 }}>Edit goals & metrics — {yr}</div>
+            <div style={{ fontSize:12, color:"#64748b" }}>Changes apply to {yr} only.</div>
+          </div>
+          <button onClick={onClose} aria-label="Close editor" style={{ fontSize:18, background:"none", border:"none", cursor:"pointer", color:"#94a3b8" }}>✕</button>
+        </div>
+        <div style={{ fontSize:11, color:"#475569", background:"#f1f5f9", border:"1px solid #e2e8f0", borderRadius:8, padding:"8px 10px", marginBottom:16, lineHeight:1.5 }}>
+          This is the screen that has to work without a developer. In the real build these fields live in Airtable or a locked config tab, not in the code.
+        </div>
+        {CATS.map(function(cat) {
+          var items = edits.filter(function(e) { return e.cat === cat; });
+          if (!items.length) return null;
+          return (
+            <div key={cat} style={{ marginBottom:16 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#64748b", textTransform:"uppercase", marginBottom:6 }}>{cat}</div>
+              <div className="odc-scroll">
+                {items.map(function(m) {
+                  return (
+                    <div key={m.id} style={{ display:"grid", gridTemplateColumns:"minmax(150px,1fr) 70px 100px 110px 80px", gap:4, alignItems:"center", padding:"5px 0", borderBottom:"1px solid #f1f5f9", minWidth:520 }}>
+                      <input value={m.name} aria-label="Metric name" onChange={function(e) { up(m.id, "name", e.target.value); }} style={{ fontSize:12, padding:"5px 6px", border:"1px solid #e2e8f0", borderRadius:6, outline:"none", width:"100%" }} />
+                      <input value={m.goal} aria-label="Goal" onChange={function(e) { up(m.id, "goal", +e.target.value || 0); }} type="number" style={{ fontSize:12, padding:"5px 6px", border:"1px solid #e2e8f0", borderRadius:6, outline:"none", textAlign:"center", width:"100%" }} />
+                      <input value={m.owner} aria-label="Owner" onChange={function(e) { up(m.id, "owner", e.target.value); }} style={{ fontSize:12, padding:"5px 6px", border:"1px solid #e2e8f0", borderRadius:6, outline:"none", width:"100%" }} />
+                      <select value={m.source} aria-label="Data source" onChange={function(e) { up(m.id, "source", e.target.value); }} style={{ fontSize:10, padding:"5px 3px", border:"1px solid #e2e8f0", borderRadius:6, width:"100%" }}>
+                        {["Harvest","CultureAmp","Google Sheets","Copper","Harvest + Sheets","Client survey","Manual"].map(function(s) { return <option key={s}>{s}</option>; })}
+                      </select>
+                      <select value={m.cadence} aria-label="Cadence" onChange={function(e) { up(m.id, "cadence", e.target.value); }} style={{ fontSize:10, padding:"5px 3px", border:"1px solid #e2e8f0", borderRadius:6, width:"100%" }}>
+                        {["W","M","Q"].map(function(c) { return <option key={c} value={c}>{CAD[c]}</option>; })}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:16 }}>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn active onClick={function() { onSave(edits); onClose(); }}>Save changes</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamModal({ onClose }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, padding:12 }}>
+      <div style={{ background:"#fff", borderRadius:14, width:"100%", maxWidth:480, padding:24 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}>
+          <div style={{ fontSize:18, fontWeight:800 }}>Team access</div>
+          <button onClick={onClose} aria-label="Close team panel" style={{ fontSize:18, background:"none", border:"none", cursor:"pointer", color:"#94a3b8" }}>✕</button>
+        </div>
+        {USERS.map(function(u) {
+          return (
+            <div key={u.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:"1px solid #f1f5f9" }}>
+              <div style={{ width:32, height:32, borderRadius:"50%", background:"#3b82f6", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700 }}>{u.avatar}</div>
+              <div style={{ flex:1, fontSize:13, fontWeight:600 }}>{u.name}</div>
+              <Badge t={ROLES[u.role]} c={u.role === "admin" ? "#3b82f6" : "#22c55e"} />
+            </div>
+          );
+        })}
+        <div style={{ fontSize:11, color:"#64748b", marginTop:12, lineHeight:1.5 }}>
+          In production these roles come from Google Workspace sign-in, restricted to the One Design domain. No separate passwords.
+        </div>
+        <div style={{ display:"flex", justifyContent:"flex-end", marginTop:12 }}>
+          <Btn active onClick={onClose}>Done</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExportModal({ onClose, yr, qtr }) {
+  const [msg, setMsg] = useState(null);
+  var exps = [
+    { id:"pdf", name:"PDF — Weekly L10 snapshot", desc:"Scorecard with status, sparklines, and recs.", icon:"\u{1F4C4}" },
+    { id:"csv", name:"CSV / Excel data export", desc:"Raw metric data for the selected timeframe.", icon:"\u{1F4CA}" },
+    { id:"monthly", name:"Monthly summary report", desc:"Formatted PDF with trends and accountability.", icon:"\u{1F4CB}" },
+    { id:"qtr", name:"Quarterly board deck data", desc:"Slide-ready summaries, YoY comparisons.", icon:"\u{1F4D1}" },
+  ];
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, padding:12 }}>
+      <div style={{ background:"#fff", borderRadius:14, width:"100%", maxWidth:520, padding:24 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}>
+          <div>
+            <div style={{ fontSize:18, fontWeight:800 }}>Download reports</div>
+            <div style={{ fontSize:12, color:"#64748b" }}>{yr} · {qtr}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close export panel" style={{ fontSize:18, background:"none", border:"none", cursor:"pointer", color:"#94a3b8" }}>✕</button>
+        </div>
+        {exps.map(function(ex) {
+          return (
+            <button key={ex.id} onClick={function() { setMsg(ex.name + " isn't wired up yet — it's on the Phase 2 list."); }} style={{ display:"flex", alignItems:"flex-start", gap:12, width:"100%", padding:"12px 14px", marginBottom:8, background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:10, cursor:"pointer", textAlign:"left" }}>
+              <span style={{ fontSize:22 }}>{ex.icon}</span>
+              <div>
+                <div style={{ fontSize:13, fontWeight:600 }}>{ex.name}</div>
+                <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{ex.desc}</div>
+              </div>
+            </button>
+          );
+        })}
+        {msg && <div style={{ fontSize:11, color:"#92400e", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:8, padding:"8px 10px", marginTop:4 }}>{msg}</div>}
+        <div style={{ display:"flex", justifyContent:"flex-end", marginTop:12 }}>
+          <Btn onClick={onClose}>Close</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function YoYCompare({ metrics, yr, qtr }) {
+  var py = yr - 1;
+  return (
+    <div style={{ background:"#fff", border:"1px solid #e2e8f0", borderRadius:10, padding:16, marginBottom:16 }}>
+      <div style={{ fontSize:13, fontWeight:700, marginBottom:10 }}>Year-over-year: {qtr} {yr} vs {qtr} {py}</div>
+      <div className="odc-scroll">
+        <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+          <thead>
+            <tr style={{ borderBottom:"1px solid #e2e8f0" }}>
+              <th style={{ textAlign:"left", padding:"6px 8px", fontSize:10, color:"#94a3b8", fontWeight:700 }}>Metric</th>
+              <th style={{ textAlign:"center", padding:"6px 8px", fontSize:10, color:"#94a3b8", fontWeight:700 }}>Goal</th>
+              <th style={{ textAlign:"center", padding:"6px 8px", fontSize:10, color:"#94a3b8", fontWeight:700 }}>{qtr} {py}</th>
+              <th style={{ textAlign:"center", padding:"6px 8px", fontSize:10, color:"#94a3b8", fontWeight:700 }}>{qtr} {yr}</th>
+              <th style={{ textAlign:"center", padding:"6px 8px", fontSize:10, color:"#94a3b8", fontWeight:700 }}>Δ YoY</th>
+            </tr>
+          </thead>
+          <tbody>
+            {metrics.map(function(m) {
+              var cD = (m.history && m.history[yr] && m.history[yr][qtr]) || [];
+              var pD = (m.history && m.history[py] && m.history[py][qtr]) || [];
+              var cA = cD.length ? +(cD.reduce(function(a,b){return a+b;},0) / cD.length).toFixed(1) : null;
+              var pA = pD.length ? +(pD.reduce(function(a,b){return a+b;},0) / pD.length).toFixed(1) : null;
+              var delta = cA != null && pA != null ? +(cA - pA).toFixed(1) : null;
+              var better = delta != null ? (m.inverted ? delta < 0 : delta > 0) : null;
+              return (
+                <tr key={m.id} style={{ borderBottom:"1px solid #f1f5f9" }}>
+                  <td style={{ padding:"6px 8px", fontWeight:500 }}>{m.name}</td>
+                  <td style={{ textAlign:"center", padding:"6px 8px", color:"#64748b" }}>{m.goal}</td>
+                  <td style={{ textAlign:"center", padding:"6px 8px" }}>{pA != null ? pA : "—"}</td>
+                  <td style={{ textAlign:"center", padding:"6px 8px", fontWeight:700 }}>{cA != null ? cA : "—"}</td>
+                  <td style={{ textAlign:"center", padding:"6px 8px", fontWeight:600, color:better === true ? "#22c55e" : better === false ? "#ef4444" : "#94a3b8" }}>
+                    {delta != null ? (delta > 0 ? "+" : "") + delta : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ScTable({ metrics, yr, qtr, canEdit }) {
+  const [exp, setExp] = useState(null);
+  const [notes, setNotes] = useState({});
+  const [dropped, setDropped] = useState({});
+  var wl = getWkLabels();
+  var grouped = CATS.map(function(cat) {
+    return { cat: cat, items: metrics.filter(function(m) { return m.cat === cat; }) };
+  }).filter(function(gr) { return gr.items.length > 0; });
+
+  return (
+    <div>
+      {grouped.map(function(gr) {
+        return (
+          <div key={gr.cat} style={{ marginBottom:14 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:0.8, marginBottom:5, padding:"0 4px", display:"flex", alignItems:"center", gap:8 }}>
+              {gr.cat}
+              <span style={{ fontSize:9, fontWeight:500, color:"#94a3b8", textTransform:"none", letterSpacing:0 }}>{gr.items.length} metrics</span>
+            </div>
+            <div className="odc-scroll" style={{ background:"#fff", border:"1px solid #e2e8f0", borderRadius:10 }}>
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead>
+                  <tr style={{ background:"#f8fafc", borderBottom:"1px solid #e2e8f0" }}>
+                    {["Metric","Owner","Goal","Actual","Δ WoW","13-Wk Trend","Source","Cadence"].map(function(hd) {
+                      return <th key={hd} style={{ textAlign: hd === "Metric" || hd === "Owner" || hd === "13-Wk Trend" || hd === "Source" ? "left" : "center", padding:"7px 6px", fontSize:9, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:0.5 }}>{hd}</th>;
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {gr.items.map(function(m) {
+                    var d = (m.history && m.history[yr] && m.history[yr][qtr]) || [];
+                    var last = d.length ? d[d.length - 1] : null;
+                    var prior = d.length > 1 ? d[d.length - 2] : null;
+                    var s = last != null ? getSt(last, m.goal, m.inverted) : "at";
+                    var delta = last != null && prior != null ? +(last - prior).toFixed(1) : null;
+                    var isDrop = dropped[m.id];
+                    var isExp = exp === m.id;
+                    var avg = d.length ? (d.reduce(function(a,b){return a+b;}, 0) / d.length).toFixed(1) : "—";
+                    var t3 = d.slice(-3);
+                    var tDir = "→ Flat";
+                    if (t3.length >= 3) {
+                      if (!m.inverted) {
+                        tDir = t3[2] > t3[0] ? "↗ Improving" : t3[2] < t3[0] ? "↘ Declining" : "→ Flat";
+                      } else {
+                        tDir = t3[2] < t3[0] ? "↗ Improving" : t3[2] > t3[0] ? "↘ Worsening" : "→ Flat";
+                      }
+                    }
+                    return (
+                      <Fragment key={m.id}>
+                        <tr onClick={function() { setExp(isExp ? null : m.id); }} style={{ cursor:"pointer", background:isDrop ? "#fef2f2" : "transparent", borderLeft:isDrop ? "3px solid #ef4444" : "3px solid transparent", borderBottom:"1px solid #f1f5f9" }}>
+                          <td style={{ padding:"7px 6px", fontSize:12, fontWeight:500, maxWidth:180 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                              <Dot s={s} />
+                              <span>{m.name}</span>
+                              {m.flag && <span title={m.flag} style={{ fontSize:10, color:"#f59e0b" }}>⚑</span>}
+                            </div>
+                            {isDrop && <span style={{ fontSize:9, color:"#ef4444", fontWeight:700, marginLeft:16 }}>▼ DROPPED</span>}
+                          </td>
+                          <td style={{ fontSize:11, color:"#64748b", padding:"7px 4px", whiteSpace:"nowrap" }}>{m.owner}</td>
+                          <td style={{ fontSize:11, fontWeight:600, padding:"7px 4px", textAlign:"center" }}>{m.goal}{m.unit === "%" ? "%" : m.unit === "/5" ? "/5" : ""}</td>
+                          <td style={{ fontSize:12, fontWeight:700, padding:"7px 4px", textAlign:"center", color:SC[s] }}>{last != null ? last : "—"}</td>
+                          <td style={{ fontSize:10, padding:"7px 4px", textAlign:"center", color:delta != null ? (delta >= 0 ? (m.inverted ? "#ef4444" : "#22c55e") : (m.inverted ? "#22c55e" : "#ef4444")) : "#94a3b8" }}>{delta != null ? (delta > 0 ? "+" : "") + delta : "—"}</td>
+                          <td style={{ padding:"7px 4px" }}><Spark data={d} goal={m.goal} inv={m.inverted} /></td>
+                          <td style={{ padding:"7px 4px" }}><Badge t={m.source} c={SRC_C[m.source] || "#64748b"} /></td>
+                          <td style={{ padding:"7px 4px", textAlign:"center" }}><Badge t={CAD[m.cadence]} c={m.cadence === "W" ? "#3b82f6" : m.cadence === "M" ? "#8b5cf6" : "#64748b"} /></td>
+                        </tr>
+                        {isExp && (
+                          <tr style={{ background:"#f8fafc" }}>
+                            <td colSpan={8} style={{ padding:"10px 14px" }}>
+                              {m.flag && (
+                                <div style={{ marginBottom:10, padding:"8px 10px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:8, fontSize:11, color:"#92400e" }}>
+                                  <strong>Open question:</strong> {m.flag}
+                                </div>
+                              )}
+                              {EXPLAINERS[m.id] && (
+                                <div style={{ marginBottom:10, padding:"10px 12px", background:"#fff", borderRadius:8, border:"1px solid #e2e8f0" }}>
+                                  <div style={{ fontSize:11, fontWeight:700, color:"#334155", marginBottom:4 }}>What this measures</div>
+                                  <div style={{ fontSize:12, color:"#64748b", lineHeight:1.5, marginBottom:8 }}>{EXPLAINERS[m.id].what}</div>
+                                  <div style={{ fontSize:11, fontWeight:700, color:"#334155", marginBottom:4 }}>Why it matters</div>
+                                  <div style={{ fontSize:12, color:"#64748b", lineHeight:1.5 }}>{EXPLAINERS[m.id].why}</div>
+                                </div>
+                              )}
+                              <div style={{ display:"flex", gap:20, flexWrap:"wrap", alignItems:"flex-start" }}>
+                                <div style={{ flex:1, minWidth:200 }}>
+                                  <div style={{ fontSize:10, color:"#64748b", marginBottom:4 }}>Trend: <strong>{tDir}</strong> · Avg: <strong>{avg}</strong> · High: <strong>{d.length ? Math.max.apply(null, d) : "—"}</strong> · Low: <strong>{d.length ? Math.min.apply(null, d) : "—"}</strong></div>
+                                  <HeatRow data={d} goal={m.goal} inv={m.inverted} labels={wl} />
+                                </div>
+                                {canEdit && (
+                                  <Btn active={isDrop} onClick={function(e) { e.stopPropagation(); setDropped(function(p) { var n = Object.assign({}, p); n[m.id] = !p[m.id]; return n; }); }} style={{ fontSize:10, padding:"4px 8px" }}>
+                                    {isDrop ? "✓ Dropped" : "▼ Drop down"}
+                                  </Btn>
+                                )}
+                              </div>
+                              {canEdit && (
+                                <input
+                                  onClick={function(e) { e.stopPropagation(); }}
+                                  aria-label="Note"
+                                  placeholder="Add a note (IDS topic, action item...)"
+                                  value={notes[m.id] || ""}
+                                  onChange={function(e) { e.stopPropagation(); var val = e.target.value; setNotes(function(p) { var n = Object.assign({}, p); n[m.id] = val; return n; }); }}
+                                  style={{ width:"100%", fontSize:11, padding:"5px 8px", border:"1px solid #e2e8f0", borderRadius:6, outline:"none", marginTop:8 }}
+                                />
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Card({ title, children, note }) {
+  return (
+    <div style={{ background:"#fff", border:"1px solid #e2e8f0", borderRadius:10, padding:20, marginBottom:16 }}>
+      <div style={{ fontSize:15, fontWeight:700, marginBottom: note ? 4 : 12 }}>{title}</div>
+      {note && <div style={{ fontSize:12, color:"#64748b", marginBottom:12, lineHeight:1.5 }}>{note}</div>}
+      {children}
+    </div>
+  );
+}
+
+function BuildPlan() {
+  var phases = [
+    { n:"Phase 1", t:"Private preview", who:"Brad, ~1 hour", what:"Vite + React repo, deploy to Cloudflare Pages, put Cloudflare Access in front restricted to the One Design domain. Mock data stays. This page is the stand-in.", cost:"$0" },
+    { n:"Phase 2", t:"Real URL, sign-in, editable goals", who:"Brad, ~2–4 days", what:"scorecard.onedesigncompany.com via CNAME. Google Workspace sign-in. Goals, owners and targets move to Airtable so the four of us edit them without a deploy.", cost:"$0" },
+    { n:"Phase 3", t:"Live data", who:"Brad, ~2–3 days", what:"Coefficient pulls Harvest and Copper into one Google Sheet weekly. A single serverless function reads that Sheet with a service account. The app holds one integration, not four.", cost:"$0–99/mo" },
+    { n:"Phase 4", t:"ODC design system", who:"Brad, ~2–4 days", what:"Export tokens from ODC Design System 3.0 once, replace the hardcoded hex values, adopt shadcn/ui + Tremor for the tables and charts.", cost:"$0" },
+  ];
+  var decisions = [
+    { q:"Where does the repo live?", why:"A One Design GitHub org, not a personal account. Internal tools get orphaned otherwise." },
+    { q:"Cloudflare or Vercel?", why:"Cloudflare Access is free up to 50 users and gates preview and production identically. Vercel charges $20/mo per project for password protection, and its free option only admits people already on the Vercel team — which rules out most of us." },
+    { q:"Airtable or a config tab in the Sheet?", why:"Both work. Airtable gives dropdowns and validation; a Sheet tab is one less tool. Brad's call." },
+    { q:"Who owns each data source?", why:"Still open from the 12.04 action items. EOS says one person owns it, and Coefficient can't be set up until someone owns the credentials." },
+    { q:"Where do Client NPS and CSAT come from?", why:"They're pointed at CultureAmp today, which only measures employees. Needs a client survey or a Copper field." },
+  ];
+  var sources = [
+    ["Harvest","Utilization, hours, effective rate, budget vs actual","—","Weekly via Coefficient"],
+    ["Copper","Pipeline, weighted pipeline, win rate, referrals","—","Weekly via Coefficient"],
+    ["Google Sheet","Revenue, margin, cash, A/R","—","Manual weekly entry"],
+    ["Client survey","Client NPS, Client Satisfaction","—","At project close"],
+    ["CultureAmp","Engagement, eNPS","—","Quarterly"],
+    ["Config (Airtable)","Goals, owners, targets, thresholds","—","As needed"],
+  ];
+  var security = [
+    "No API keys in browser code — credentials live in Workers secrets, and the browser only ever sees finished numbers.",
+    "Sign-in restricted to the One Design domain, enforced server-side, not just hidden in the UI.",
+    "Google service account gets read-only access to one Sheet and nothing else.",
+    "Read-only tokens for Harvest, Copper and CultureAmp, rotated quarterly.",
+    "Review the AI-generated code for hardcoded secrets, direct browser calls to Harvest or Copper, and wide-open CORS.",
+  ];
+  return (
+    <div style={{ maxWidth:860 }}>
+      <Card title="What we're proposing" note="A working scorecard at a One Design URL that the five of us sign into with our Google accounts, showing live numbers from the tools we already use.">
+        <div style={{ fontSize:13, color:"#334155", lineHeight:1.7 }}>
+          The split we're suggesting: Brad scaffolds it and owns the code, deployment and credentials. The rest of us edit goals, owners and targets ourselves, through a screen that never touches the repo. That's the part worth pressure-testing this morning — if editing a goal requires a developer, this becomes a maintenance burden instead of a scorecard.
+        </div>
+      </Card>
+
+      <Card title="Four phases" note="Each one ends in something usable, so we can stop after any of them.">
+        <div className="odc-scroll">
+          <table style={{ width:"100%", fontSize:12, minWidth:600 }}>
+            <thead>
+              <tr style={{ borderBottom:"1px solid #e2e8f0" }}>
+                {["","Outcome","Effort","Cost"].map(function(h,i){
+                  return <th key={i} style={{ textAlign:"left", padding:"6px 8px", fontSize:9, color:"#94a3b8", fontWeight:700, textTransform:"uppercase", letterSpacing:0.5 }}>{h}</th>;
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {phases.map(function(p) {
+                return (
+                  <tr key={p.n} style={{ borderBottom:"1px solid #f1f5f9", verticalAlign:"top" }}>
+                    <td style={{ padding:"10px 8px", fontWeight:700, whiteSpace:"nowrap" }}>{p.n}</td>
+                    <td style={{ padding:"10px 8px" }}>
+                      <div style={{ fontWeight:600, marginBottom:3 }}>{p.t}</div>
+                      <div style={{ color:"#64748b", lineHeight:1.5 }}>{p.what}</div>
+                    </td>
+                    <td style={{ padding:"10px 8px", color:"#64748b", whiteSpace:"nowrap" }}>{p.who}</td>
+                    <td style={{ padding:"10px 8px", color:"#64748b", whiteSpace:"nowrap" }}>{p.cost}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card title="Decisions for this meeting" note="Five things that need Brad's read before anything gets built.">
+        {decisions.map(function(d, i) {
+          return (
+            <div key={i} style={{ padding:"10px 0", borderBottom: i < decisions.length-1 ? "1px solid #f1f5f9" : "none" }}>
+              <div style={{ fontSize:13, fontWeight:600, marginBottom:3 }}>{d.q}</div>
+              <div style={{ fontSize:12, color:"#64748b", lineHeight:1.6 }}>{d.why}</div>
+            </div>
+          );
+        })}
+      </Card>
+
+      <Card title="Who owns each data source" note="Blank on purpose. This is the open action item from the December L10, and Phase 3 is blocked until it's filled in.">
+        <div className="odc-scroll">
+          <table style={{ width:"100%", fontSize:12, minWidth:560 }}>
+            <thead>
+              <tr style={{ borderBottom:"1px solid #e2e8f0" }}>
+                {["Source","Feeds","Owner","Refresh"].map(function(h) {
+                  return <th key={h} style={{ textAlign:"left", padding:"6px 8px", fontSize:9, color:"#94a3b8", fontWeight:700, textTransform:"uppercase", letterSpacing:0.5 }}>{h}</th>;
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map(function(r, i) {
+                return (
+                  <tr key={i} style={{ borderBottom:"1px solid #f1f5f9" }}>
+                    <td style={{ padding:"8px", fontWeight:600 }}>{r[0]}</td>
+                    <td style={{ padding:"8px", color:"#64748b" }}>{r[1]}</td>
+                    <td style={{ padding:"8px", color:"#ef4444", fontWeight:700 }}>{r[2]}</td>
+                    <td style={{ padding:"8px", color:"#64748b", whiteSpace:"nowrap" }}>{r[3]}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card title="Security review for Brad" note="Financials, individual utilization and eNPS all run through this, so it's worth a proper look before live data flows.">
+        <ul style={{ margin:0, paddingLeft:18, fontSize:12, color:"#334155", lineHeight:1.8 }}>
+          {security.map(function(s, i) { return <li key={i}>{s}</li>; })}
+        </ul>
+      </Card>
+    </div>
+  );
+}
+
+function Sidebar({ page, setPage, user }) {
+  var items = [
+    { id:"scorecard", label:"Scorecard", icon:"📊" },
+    { id:"history", label:"History", icon:"📅" },
+    { id:"settings", label:"Settings", icon:"⚙️" },
+    { id:"plan", label:"Build plan", icon:"🧭" },
+  ];
+  return (
+    <div className="odc-sidebar" style={{ width:200, background:"#0f172a", color:"#fff", padding:"20px 0", display:"flex", flexDirection:"column", minHeight:"100vh", flexShrink:0 }}>
+      <div style={{ padding:"0 16px 16px", borderBottom:"1px solid #1e293b" }}>
+        <div style={{ fontSize:15, fontWeight:800, letterSpacing:-0.3 }}>One Design Co.</div>
+        <div style={{ fontSize:10, color:"#94a3b8", marginTop:2 }}>EOS Scorecard · proof of concept</div>
+      </div>
+      <div className="odc-nav" style={{ flex:1, padding:"12px 8px" }}>
+        {items.map(function(it) {
+          return (
+            <button key={it.id} onClick={function() { setPage(it.id); }} style={{ display:"flex", alignItems:"center", gap:8, width:"100%", padding:"9px 12px", marginBottom:2, borderRadius:8, border:"none", background:page === it.id ? "#1e293b" : "transparent", color:page === it.id ? "#fff" : "#94a3b8", cursor:"pointer", fontSize:12, fontWeight:600, textAlign:"left" }}>
+              <span>{it.icon}</span>{it.label}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ padding:"12px 16px", borderTop:"1px solid #1e293b", display:"flex", alignItems:"center", gap:8 }}>
+        <div style={{ width:28, height:28, borderRadius:"50%", background:"#3b82f6", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700 }}>{user.avatar}</div>
+        <div>
+          <div style={{ fontSize:12, fontWeight:600 }}>{user.name}</div>
+          <div style={{ fontSize:9, color:"#94a3b8" }}>{ROLES[user.role]}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [page, setPage] = useState("scorecard");
+  const [metrics, setMetrics] = useState(METRICS);
+  const [yr, setYr] = useState(2026);
+  const [qtr, setQtr] = useState("Q1");
+  const [showGoals, setShowGoals] = useState(false);
+  const [showTeam, setShowTeam] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [showYoY, setShowYoY] = useState(false);
+  const [showAlerts, setShowAlerts] = useState(false);
+  const [catFilter, setCatFilter] = useState("All");
+  const [alerts, setAlerts] = useState(function() { return computeAlerts(METRICS, 2026, "Q1"); });
+
+  var user = USERS[0];
+  var canEdit = user.role === "admin" || user.role === "editor";
+  var filtered = catFilter === "All" ? metrics : metrics.filter(function(m) { return m.cat === catFilter; });
+  var unreadCount = alerts.filter(function(a) { return !a.read; }).length;
+  var criticalCount = alerts.filter(function(a) { return a.tier === "critical" && !a.read; }).length;
+
+  function markRead(idx) {
+    setAlerts(function(prev) {
+      return prev.map(function(a, i) { return i === idx ? Object.assign({}, a, { read: true }) : a; });
+    });
+  }
+
+  useEffect(function() {
+    setAlerts(computeAlerts(metrics, yr, qtr));
+  }, [yr, qtr, metrics]);
+
+  var titles = { scorecard:"Scorecard", history:"History & comparisons", settings:"Settings", plan:"Build plan" };
+
+  return (
+    <div className="odc-shell" style={{ display:"flex", background:"#f1f5f9", minHeight:"100%" }}>
+      <Sidebar page={page} setPage={setPage} user={user} />
+      <div className="odc-main" style={{ flex:1, padding:"20px 24px", overflowY:"auto", maxHeight:"100vh" }}>
+
+        <div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", marginBottom:14, background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:8 }}>
+          <span style={{ fontSize:13 }}>🧪</span>
+          <div style={{ fontSize:11, color:"#1e40af", lineHeight:1.5 }}>
+            <strong>Proof of concept.</strong> Every number here is sample data, identical for everyone who opens this link. Nothing is connected to Harvest, Copper or Sheets yet — see <strong>Build plan</strong> for how it gets there.
+          </div>
+        </div>
+
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+          <div>
+            <div style={{ fontSize:20, fontWeight:800, color:"#0f172a" }}>{titles[page]}</div>
+            <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>
+              {page === "plan" ? "For discussion with Brad" : yr + " · " + qtr + " · " + metrics.length + " metrics across " + CATS.length + " categories"}
+            </div>
+          </div>
+          {page !== "plan" && (
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+              <button onClick={function() { setShowAlerts(true); }} style={{ position:"relative", fontSize:13, padding:"5px 8px", borderRadius:6, border:"1px solid #e2e8f0", background:unreadCount > 0 ? "#fef2f2" : "#fff", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
+                {"🔔"} <span style={{ fontSize:11 }}>Alerts</span>
+                {unreadCount > 0 && <span style={{ position:"absolute", top:-4, right:-4, minWidth:18, height:18, padding:"0 4px", borderRadius:9, background:"#ef4444", color:"#fff", fontSize:9, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center" }}>{unreadCount}</span>}
+              </button>
+              {canEdit && <IconBtn onClick={function() { setShowGoals(true); }}>{"⚙️"} <span style={{ fontSize:11 }}>Goals</span></IconBtn>}
+              <IconBtn onClick={function() { setShowTeam(true); }}>{"👥"} <span style={{ fontSize:11 }}>Team</span></IconBtn>
+              <IconBtn onClick={function() { setShowExport(true); }}>{"📥"} <span style={{ fontSize:11 }}>Export</span></IconBtn>
+            </div>
+          )}
+        </div>
+
+        {page !== "plan" && (
+          <div style={{ display:"flex", gap:5, marginBottom:12, flexWrap:"wrap", alignItems:"center" }}>
+            {YEARS.map(function(y) { return <Btn key={y} active={yr === y} onClick={function() { setYr(y); }}>{y}</Btn>; })}
+            <div style={{ width:1, height:20, background:"#e2e8f0", margin:"0 3px" }} />
+            {QS.map(function(q) { return <Btn key={q} active={qtr === q} onClick={function() { setQtr(q); }}>{q}</Btn>; })}
+            {page === "scorecard" && (
+              <Fragment>
+                <div style={{ width:1, height:20, background:"#e2e8f0", margin:"0 3px" }} />
+                {["All"].concat(CATS).map(function(c) {
+                  return <Btn key={c} active={catFilter === c} onClick={function() { setCatFilter(c); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:12 }}>{c}</Btn>;
+                })}
+              </Fragment>
+            )}
+            <div style={{ flex:1 }} />
+            {page === "scorecard" && <Btn onClick={function() { setShowYoY(!showYoY); }} style={{ fontSize:10, padding:"4px 10px" }}>{showYoY ? "Hide" : "Show"} YoY</Btn>}
+          </div>
+        )}
+
+        {page === "scorecard" && unreadCount > 0 && (
+          <div onClick={function() { setShowAlerts(true); }} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 16px", marginBottom:14, background:criticalCount > 0 ? "#fef2f2" : "#fffbeb", border:"1px solid " + (criticalCount > 0 ? "#fecaca" : "#fde68a"), borderRadius:10, cursor:"pointer" }}>
+            <span style={{ fontSize:16 }}>{criticalCount > 0 ? "🔴" : "🟡"}</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:criticalCount > 0 ? "#991b1b" : "#92400e" }}>
+                {criticalCount > 0 ? criticalCount + " metric" + (criticalCount > 1 ? "s" : "") + " off track" : unreadCount + " alert" + (unreadCount > 1 ? "s" : "") + " need attention"}
+              </div>
+              <div style={{ fontSize:11, color:"#64748b", marginTop:1 }}>Click to view all alerts and recommended actions</div>
+            </div>
+            <span style={{ fontSize:11, color:"#64748b", fontWeight:600 }}>View all →</span>
+          </div>
+        )}
+
+        {page === "scorecard" && (
+          <Fragment>
+            <SummaryCards metrics={filtered} yr={yr} qtr={qtr} />
+            {showYoY && <YoYCompare metrics={filtered} yr={yr} qtr={qtr} />}
+            <div style={{ background:"#fff", border:"1px solid #e2e8f0", borderRadius:10, marginBottom:14 }}>
+              <Recs metrics={filtered} yr={yr} qtr={qtr} />
+            </div>
+            <ScTable metrics={filtered} yr={yr} qtr={qtr} canEdit={canEdit} />
+          </Fragment>
+        )}
+
+        {page === "history" && (
+          <Fragment>
+            <div style={{ background:"#fff", border:"1px solid #e2e8f0", borderRadius:10, padding:16, marginBottom:16 }}>
+              <div style={{ fontSize:13, fontWeight:700, marginBottom:6 }}>Browse historical data</div>
+              <div style={{ fontSize:12, color:"#64748b", lineHeight:1.6 }}>Use the year and quarter selectors to navigate any past period. In production this is limited by how far back each source can be backfilled — Harvest and Copper go back years, CultureAmp only as far as past surveys.</div>
+            </div>
+            <YoYCompare metrics={metrics} yr={yr} qtr={qtr} />
+            <ScTable metrics={metrics} yr={yr} qtr={qtr} canEdit={false} />
+          </Fragment>
+        )}
+
+        {page === "plan" && <BuildPlan />}
+
+        {page === "settings" && (
+          <div style={{ maxWidth:700 }}>
+            <Card title="Goal administration" note={"Edit metrics, goals, owners, sources, and cadence for " + yr + "."}>
+              <Btn active onClick={function() { setShowGoals(true); }}>Edit {yr} goals & metrics</Btn>
+            </Card>
+            <Card title="Alert configuration" note="Three alert tiers with escalating notification channels.">
+              <div className="odc-tiers" style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+                {Object.keys(ATIERS).map(function(k) {
+                  var v = ATIERS[k];
+                  return (
+                    <div key={k} style={{ padding:"12px 14px", background:"#f8fafc", borderRadius:8, border:"1px solid #e2e8f0" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                        <span style={{ fontSize:14 }}>{v.icon}</span>
+                        <span style={{ fontSize:12, fontWeight:700, color:v.color }}>{v.label}</span>
+                      </div>
+                      <div style={{ fontSize:11, color:"#64748b", lineHeight:1.5, marginBottom:6 }}>
+                        {k === "critical" ? "Metric has missed its goal." : k === "warning" ? "Within 10% of goal and declining." : "On track but 3-week decline."}
+                      </div>
+                      <div style={{ fontSize:10, fontWeight:600, color:"#334155" }}>Action: {v.action}</div>
+                      <div style={{ fontSize:10, color:"#94a3b8", marginTop:2 }}>{v.channel}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+            <Card title="Data sources" note="Where each number comes from, and what still needs deciding.">
+              {[
+                { name:"Harvest", ep:"Weekly → Google Sheet", desc:"Time, utilization, hours, delivery", st:"Planned" },
+                { name:"Copper", ep:"Weekly → Google Sheet", desc:"Pipeline, leads, win rate, referrals", st:"Planned" },
+                { name:"Google Sheets", ep:"Read by the app", desc:"Financials, margin, projections", st:"Planned" },
+                { name:"Client survey", ep:"At project close", desc:"Client NPS and satisfaction", st:"Needs a decision" },
+                { name:"CultureAmp", ep:"Quarterly export", desc:"Engagement and eNPS only", st:"Planned" },
+              ].map(function(src) {
+                return (
+                  <div key={src.name} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 12px", marginBottom:6, background:"#f8fafc", borderRadius:8, border:"1px solid #e2e8f0", flexWrap:"wrap" }}>
+                    <Dot s={src.st === "Planned" ? "at" : "off"} sz={8} />
+                    <div style={{ flex:1, minWidth:140 }}>
+                      <div style={{ fontSize:12, fontWeight:600 }}>{src.name}</div>
+                      <div style={{ fontSize:10, color:"#94a3b8" }}>{src.desc}</div>
+                    </div>
+                    <span style={{ fontSize:10, color:"#94a3b8" }}>{src.ep}</span>
+                    <Badge t={src.st} c={src.st === "Planned" ? "#f59e0b" : "#ef4444"} />
+                  </div>
+                );
+              })}
+            </Card>
+            <Card title="Team & access" note="Production signs in with Google Workspace, restricted to the One Design domain.">
+              <Btn active onClick={function() { setShowTeam(true); }}>Manage team</Btn>
+            </Card>
+          </div>
+        )}
+      </div>
+
+      {showAlerts && <AlertPanel alerts={alerts} onClose={function() { setShowAlerts(false); }} onMarkRead={markRead} />}
+      {showGoals && <GoalEditor metrics={metrics} yr={yr} onSave={setMetrics} onClose={function() { setShowGoals(false); }} />}
+      {showTeam && <TeamModal onClose={function() { setShowTeam(false); }} />}
+      {showExport && <ExportModal yr={yr} qtr={qtr} onClose={function() { setShowExport(false); }} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
