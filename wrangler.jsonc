@@ -1,0 +1,9 @@
+{
+  // Tells Cloudflare this Worker just serves the files in /public.
+  // The "name" must match the Worker that already exists in the dashboard.
+  "name": "odc-scorecard-poc",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./public"
+  }
+}
